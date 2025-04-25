@@ -64,15 +64,45 @@ export default function FindWorkPage() {
       try {
         setLoading(true);
 
-        // Fetch job postings with profile information
+        // Fetch job postings with join to profiles
         const { data, error } = await supabase
-          .from('job_postings_with_profile')
-          .select('*')
+          .from('job_postings')
+          .select(
+            `
+            *,
+            profiles!job_postings_profile_id_fkey (
+              id,
+              user_id,
+              username,
+              profile_photo,
+              city,
+              country,
+              first_name,
+              last_name,
+              user_type
+            )
+          `
+          )
           .eq('status', 'active')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setJobPostings(data || []);
+
+        // Transform the nested data to match our expected format
+        const transformedData = data.map((posting: any) => ({
+          ...posting,
+          profile_id: posting.profile_id,
+          username: posting.profiles.username,
+          profile_photo: posting.profiles.profile_photo,
+          city: posting.profiles.city,
+          country: posting.profiles.country,
+          user_id: posting.profiles.user_id,
+          first_name: posting.profiles.first_name,
+          last_name: posting.profiles.last_name,
+          user_type: posting.profiles.user_type,
+        }));
+
+        setJobPostings(transformedData || []);
       } catch (err: any) {
         console.error('Error fetching job postings:', err);
         setError(err.message || 'Failed to load job postings');
@@ -104,10 +134,11 @@ export default function FindWorkPage() {
     if (!session?.user || !userProfile) return;
 
     try {
+      // Use the profile's id column as the foreign key
       const { data, error } = await supabase
         .from('job_postings')
         .insert({
-          profile_id: userProfile.id,
+          profile_id: userProfile.id, // This uses the id from profiles table
           title: jobData.title,
           description: jobData.description,
           has_deadline: jobData.has_deadline,
@@ -120,17 +151,21 @@ export default function FindWorkPage() {
       if (error) throw error;
 
       if (data && data[0]) {
-        // Refresh the job postings to include the new one
-        const { data: updatedData, error: refreshError } = await supabase
-          .from('job_postings_with_profile')
-          .select('*')
-          .eq('id', data[0].id)
-          .single();
-
-        if (refreshError) throw refreshError;
+        // Create a complete job posting object with profile data
+        const newJobPosting = {
+          ...data[0],
+          username: userProfile.username,
+          profile_photo: userProfile.profile_photo,
+          city: userProfile.city,
+          country: userProfile.country,
+          user_id: userProfile.user_id,
+          first_name: userProfile.first_name,
+          last_name: userProfile.last_name,
+          user_type: userProfile.user_type,
+        };
 
         // Add the new job posting to the state
-        setJobPostings([updatedData, ...jobPostings]);
+        setJobPostings([newJobPosting as JobPosting, ...jobPostings]);
       }
 
       setIsModalOpen(false);

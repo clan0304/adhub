@@ -13,12 +13,11 @@ interface JobPosting {
   deadline_time: string | null;
   created_at: string;
   status: 'active' | 'completed' | 'cancelled';
-  profile_id: string;
+  user_id: string;
   username: string;
   profile_photo: string | null;
   city: string;
   country: string;
-  user_id: string;
   first_name: string;
   last_name: string;
   user_type: string;
@@ -110,8 +109,8 @@ export default function JobPostingCard({
                 <Image
                   src={job.profile_photo}
                   alt={job.username}
-                  height={60}
                   width={60}
+                  height={60}
                 />
               ) : (
                 <div className="h-full w-full flex items-center justify-center bg-indigo-100 text-indigo-500">

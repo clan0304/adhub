@@ -10,7 +10,7 @@ import JobPostingCard from '@/components/JobPostingCard';
 import { getData } from 'country-list';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, X } from 'lucide-react';
+import { Search, X, Bookmark, CheckCircle } from 'lucide-react';
 
 interface JobPosting {
   id: string;
@@ -30,6 +30,7 @@ interface JobPosting {
   last_name: string;
   user_type: string;
   slug: string;
+  is_saved?: boolean; // Flag to indicate if the job is saved by the current user
 }
 
 interface CountryOption {
@@ -44,12 +45,14 @@ export default function FindWorkPage() {
   const [filteredJobPostings, setFilteredJobPostings] = useState<JobPosting[]>(
     []
   );
+  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showOnlySaved, setShowOnlySaved] = useState(false);
 
   // Load country list
   useEffect(() => {
@@ -69,6 +72,7 @@ export default function FindWorkPage() {
     setCountries(modifiedCountries);
   }, []);
 
+  // Fetch user profile and check if user is a content creator
   useEffect(() => {
     const fetchUserProfile = async () => {
       if (!session?.user) return;
@@ -83,22 +87,21 @@ export default function FindWorkPage() {
         if (error) throw error;
         setUserProfile(data);
       } catch (err: any) {
-        console.error('Error fetching user profile:', err);
+        console.error('Error fetching profile:', err);
       }
     };
 
-    if (session) {
-      fetchUserProfile();
-    }
+    fetchUserProfile();
   }, [session]);
 
+  // Fetch job postings and saved jobs
   useEffect(() => {
     const fetchJobPostings = async () => {
       try {
         setLoading(true);
 
-        // Fetch job postings with join to profiles
-        const { data, error } = await supabase
+        // Fetch all job postings
+        const { data: jobsData, error: jobsError } = await supabase
           .from('job_postings')
           .select(
             `
@@ -118,10 +121,10 @@ export default function FindWorkPage() {
           )
           .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        if (jobsError) throw jobsError;
 
-        // Transform the nested data to match our expected format
-        const transformedData = data.map((posting: any) => ({
+        // Transform the nested data
+        const transformedJobs = jobsData.map((posting: any) => ({
           ...posting,
           profile_id: posting.profile_id,
           username: posting.profiles.username,
@@ -132,10 +135,36 @@ export default function FindWorkPage() {
           first_name: posting.profiles.first_name,
           last_name: posting.profiles.last_name,
           user_type: posting.profiles.user_type,
+          is_saved: false, // Default to not saved
         }));
 
-        setAllJobPostings(transformedData || []);
-        setFilteredJobPostings(transformedData || []);
+        setAllJobPostings(transformedJobs);
+        setFilteredJobPostings(transformedJobs);
+
+        // If user is logged in and is a content creator, fetch their saved jobs
+        if (session?.user && userProfile?.user_type === 'content_creator') {
+          const { data: savedJobsData, error: savedJobsError } = await supabase
+            .from('saved_jobs')
+            .select('job_posting_id')
+            .eq('profile_id', userProfile.id);
+
+          if (savedJobsError) throw savedJobsError;
+
+          // Create a Set of saved job IDs for efficient lookup
+          const savedIds = new Set(
+            savedJobsData.map((item) => item.job_posting_id)
+          );
+          setSavedJobIds(savedIds);
+
+          // Mark jobs as saved
+          const jobsWithSavedFlag = transformedJobs.map((job) => ({
+            ...job,
+            is_saved: savedIds.has(job.id),
+          }));
+
+          setAllJobPostings(jobsWithSavedFlag);
+          setFilteredJobPostings(jobsWithSavedFlag);
+        }
       } catch (err: any) {
         console.error('Error fetching job postings:', err);
         setError(err.message || 'Failed to load job postings');
@@ -145,13 +174,18 @@ export default function FindWorkPage() {
     };
 
     fetchJobPostings();
-  }, []);
+  }, [session, userProfile]);
 
-  // Apply filters when search or country changes
+  // Apply filters when search, country, or saved filter changes
   useEffect(() => {
     if (!allJobPostings.length) return;
 
     let filtered = [...allJobPostings];
+
+    // Apply saved jobs filter
+    if (showOnlySaved) {
+      filtered = filtered.filter((job) => job.is_saved);
+    }
 
     // Apply country filter
     if (selectedCountry) {
@@ -171,7 +205,7 @@ export default function FindWorkPage() {
     }
 
     setFilteredJobPostings(filtered);
-  }, [selectedCountry, searchQuery, allJobPostings]);
+  }, [selectedCountry, searchQuery, showOnlySaved, allJobPostings]);
 
   // Helper function to generate a slug from title
   const generateSlug = (title: string): string => {
@@ -201,6 +235,7 @@ export default function FindWorkPage() {
       | 'last_name'
       | 'user_type'
       | 'slug'
+      | 'is_saved'
     >
   ) => {
     if (!session?.user || !userProfile) return;
@@ -237,6 +272,7 @@ export default function FindWorkPage() {
           first_name: userProfile.first_name,
           last_name: userProfile.last_name,
           user_type: userProfile.user_type,
+          is_saved: false,
         };
 
         // Add the new job posting to the state
@@ -248,6 +284,9 @@ export default function FindWorkPage() {
 
         // Re-apply filters
         let filtered = [...updatedJobPostings];
+        if (showOnlySaved) {
+          filtered = filtered.filter((job) => job.is_saved);
+        }
         if (selectedCountry) {
           filtered = filtered.filter((job) => job.country === selectedCountry);
         }
@@ -290,13 +329,88 @@ export default function FindWorkPage() {
     }
   };
 
+  const handleSaveJob = async (jobId: string, isSaved: boolean) => {
+    if (!userProfile) return;
+
+    try {
+      if (isSaved) {
+        // Unsave the job
+        const { error } = await supabase
+          .from('saved_jobs')
+          .delete()
+          .eq('profile_id', userProfile.id)
+          .eq('job_posting_id', jobId);
+
+        if (error) throw error;
+
+        // Update saved jobs set
+        const newSavedIds = new Set(savedJobIds);
+        newSavedIds.delete(jobId);
+        setSavedJobIds(newSavedIds);
+
+        // Update job postings
+        const updatedAll = allJobPostings.map((job) =>
+          job.id === jobId ? { ...job, is_saved: false } : job
+        );
+        setAllJobPostings(updatedAll);
+
+        // Update filtered job postings
+        setFilteredJobPostings((prevFiltered) => {
+          // If we're showing only saved, remove this job from the filtered list
+          if (showOnlySaved) {
+            return prevFiltered.filter((job) => job.id !== jobId);
+          }
+          // Otherwise, update it to show as not saved
+          return prevFiltered.map((job) =>
+            job.id === jobId ? { ...job, is_saved: false } : job
+          );
+        });
+      } else {
+        // Save the job
+        const { error } = await supabase.from('saved_jobs').insert({
+          profile_id: userProfile.id,
+          job_posting_id: jobId,
+        });
+
+        if (error) throw error;
+
+        // Update saved jobs set
+        const newSavedIds = new Set(savedJobIds);
+        newSavedIds.add(jobId);
+        setSavedJobIds(newSavedIds);
+
+        // Update job postings
+        const updatedAll = allJobPostings.map((job) =>
+          job.id === jobId ? { ...job, is_saved: true } : job
+        );
+        setAllJobPostings(updatedAll);
+
+        // Update filtered job postings
+        setFilteredJobPostings((prevFiltered) =>
+          prevFiltered.map((job) =>
+            job.id === jobId ? { ...job, is_saved: true } : job
+          )
+        );
+      }
+    } catch (err: any) {
+      console.error('Error saving/unsaving job:', err);
+      alert(`Failed to save/unsave job: ${err.message}`);
+    }
+  };
+
   const clearFilters = () => {
     setSelectedCountry('');
     setSearchQuery('');
+    setShowOnlySaved(false);
     setFilteredJobPostings(allJobPostings);
   };
 
+  const toggleSavedFilter = () => {
+    setShowOnlySaved(!showOnlySaved);
+  };
+
   const isBusinessOwner = userProfile?.user_type === 'business_owner';
+  const isContentCreator = userProfile?.user_type === 'content_creator';
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -320,7 +434,7 @@ export default function FindWorkPage() {
         </div>
 
         {/* Search and Filter Section */}
-        <div className="mb-8 bg-white p-6 rounded-lg shadow-sm">
+        <div className="mb-6 bg-white p-6 rounded-lg shadow-sm">
           <div className="flex flex-col md:flex-row gap-4">
             {/* Search bar */}
             <div className="flex-1">
@@ -353,26 +467,48 @@ export default function FindWorkPage() {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Second row for filters */}
+          <div className="flex flex-wrap items-center mt-4 gap-2">
+            {/* Saved Jobs Filter */}
+            {isContentCreator && (
+              <Button
+                onClick={toggleSavedFilter}
+                variant={showOnlySaved ? 'default' : 'outline'}
+                className="flex items-center gap-1"
+                size="sm"
+              >
+                {showOnlySaved ? (
+                  <CheckCircle className="h-4 w-4" />
+                ) : (
+                  <Bookmark className="h-4 w-4" />
+                )}
+                {showOnlySaved ? 'Showing Saved Jobs' : 'Show Saved Jobs'}
+              </Button>
+            )}
 
             {/* Clear filters button - only show if filters are active */}
-            {(selectedCountry || searchQuery) && (
+            {(selectedCountry || searchQuery || showOnlySaved) && (
               <Button
                 variant="outline"
                 onClick={clearFilters}
                 className="flex items-center gap-1"
+                size="sm"
               >
                 <X className="h-4 w-4" />
                 Clear Filters
               </Button>
             )}
-          </div>
 
-          {/* Filter stats */}
-          <div className="mt-4 text-sm text-gray-500">
-            Showing {filteredJobPostings.length} of {allJobPostings.length} job
-            postings
-            {selectedCountry && ` in ${selectedCountry}`}
-            {searchQuery && ` matching "${searchQuery}"`}
+            {/* Filter stats */}
+            <div className="text-sm text-gray-500 ml-auto">
+              Showing {filteredJobPostings.length} of {allJobPostings.length}{' '}
+              job postings
+              {selectedCountry && ` in ${selectedCountry}`}
+              {searchQuery && ` matching "${searchQuery}"`}
+              {showOnlySaved && ` you've saved`}
+            </div>
           </div>
         </div>
 
@@ -446,6 +582,10 @@ export default function FindWorkPage() {
                 job={job}
                 isOwner={job.user_id === session?.user?.id}
                 onDelete={handleDeleteJobPosting}
+                onSaveToggle={(isSaved: boolean) =>
+                  handleSaveJob(job.id, isSaved)
+                }
+                isSaved={job.is_saved || false}
               />
             ))}
           </div>

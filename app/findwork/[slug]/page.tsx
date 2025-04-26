@@ -17,6 +17,8 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { BookmarkIcon, BookmarkFilledIcon } from '@radix-ui/react-icons';
+import { Loader2 } from 'lucide-react';
 
 interface JobPosting {
   id: string;
@@ -38,21 +40,39 @@ interface JobPosting {
   user_type: string;
 }
 
+interface Applicant {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  profile_photo: string | null;
+  city: string;
+  country: string;
+  created_at: string;
+}
+
 export default function JobPostingDetailPage() {
   const { slug } = useParams();
   const [jobPosting, setJobPosting] = useState<JobPosting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isApplied, setIsApplied] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [showApplicants, setShowApplicants] = useState(false);
   const { session } = useAuth();
   const router = useRouter();
 
+  // Fetch job posting, user profile, and check saved/applied status
   useEffect(() => {
-    const fetchJobPosting = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
 
         // Fetch job posting by slug with join to profiles
-        const { data, error } = await supabase
+        const { data: jobData, error: jobError } = await supabase
           .from('job_postings')
           .select(
             `
@@ -73,25 +93,126 @@ export default function JobPostingDetailPage() {
           .eq('slug', slug)
           .single();
 
-        if (error) {
-          throw error;
+        if (jobError) {
+          throw jobError;
         }
 
-        if (data) {
+        if (jobData) {
           // Transform the nested data
-          const transformedData = {
-            ...data,
-            user_id: data.profiles.user_id,
-            username: data.profiles.username,
-            profile_photo: data.profiles.profile_photo,
-            city: data.profiles.city,
-            country: data.profiles.country,
-            first_name: data.profiles.first_name,
-            last_name: data.profiles.last_name,
-            user_type: data.profiles.user_type,
+          const transformedJob = {
+            ...jobData,
+            user_id: jobData.profiles.user_id,
+            username: jobData.profiles.username,
+            profile_photo: jobData.profiles.profile_photo,
+            city: jobData.profiles.city,
+            country: jobData.profiles.country,
+            first_name: jobData.profiles.first_name,
+            last_name: jobData.profiles.last_name,
+            user_type: jobData.profiles.user_type,
           };
 
-          setJobPosting(transformedData as JobPosting);
+          setJobPosting(transformedJob as JobPosting);
+
+          // If user is logged in, get their profile and check if they saved/applied
+          if (session?.user?.id) {
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('user_id', session.user.id)
+              .single();
+
+            if (profileError) {
+              console.error('Error fetching profile:', profileError);
+            } else {
+              setUserProfile(profileData);
+
+              // Check if job is saved
+              const { data: savedData } = await supabase
+                .from('saved_jobs')
+                .select('*')
+                .eq('profile_id', profileData.id)
+                .eq('job_posting_id', jobData.id)
+                .single();
+
+              setIsSaved(!!savedData);
+
+              // Check if user has applied for this job
+              const { data: appliedData } = await supabase
+                .from('job_applications')
+                .select('*')
+                .eq('profile_id', profileData.id)
+                .eq('job_posting_id', jobData.id)
+                .single();
+
+              setIsApplied(!!appliedData);
+
+              // If the user is the job owner, fetch applicants
+              if (jobData.profiles.user_id === session.user.id) {
+                const { data: applicantsData, error: applicantsError } =
+                  await supabase
+                    .from('job_applications')
+                    .select(
+                      `
+                    id,
+                    created_at,
+                    profiles:profile_id(
+                      id,
+                      username,
+                      first_name,
+                      last_name,
+                      profile_photo,
+                      city,
+                      country
+                    )
+                  `
+                    )
+                    .eq('job_posting_id', jobData.id)
+                    .order('created_at', { ascending: false });
+
+                if (applicantsError) {
+                  console.error('Error fetching applicants:', applicantsError);
+                } else if (applicantsData && applicantsData.length > 0) {
+                  // Log the shape of the data to console for debugging
+                  console.log(
+                    'Applicants data structure:',
+                    JSON.stringify(applicantsData[0], null, 2)
+                  );
+
+                  // Transform the applicant data with proper type handling
+                  const transformedApplicants: Applicant[] = [];
+
+                  for (const item of applicantsData) {
+                    // Handle both cases: profiles as object or as array
+                    const profileData = Array.isArray(item.profiles)
+                      ? item.profiles[0] // If it's an array, take the first item
+                      : item.profiles; // If it's an object, use it directly
+
+                    // If profile data is missing or null, skip this item
+                    if (!profileData) {
+                      console.error(
+                        'Missing profile data for application:',
+                        item.id
+                      );
+                      continue;
+                    }
+
+                    transformedApplicants.push({
+                      id: profileData.id,
+                      username: profileData.username,
+                      first_name: profileData.first_name,
+                      last_name: profileData.last_name,
+                      profile_photo: profileData.profile_photo,
+                      city: profileData.city,
+                      country: profileData.country,
+                      created_at: item.created_at,
+                    });
+                  }
+
+                  setApplicants(transformedApplicants);
+                }
+              }
+            }
+          }
         } else {
           setError('Job posting not found');
         }
@@ -104,9 +225,66 @@ export default function JobPostingDetailPage() {
     };
 
     if (slug) {
-      fetchJobPosting();
+      fetchData();
     }
-  }, [slug]);
+  }, [slug, session]);
+
+  // Handle save/unsave job
+  const handleSaveJob = async () => {
+    if (!session?.user?.id || !userProfile || !jobPosting) return;
+
+    setIsActionLoading(true);
+
+    try {
+      if (isSaved) {
+        // Unsave the job
+        const { error } = await supabase
+          .from('saved_jobs')
+          .delete()
+          .eq('profile_id', userProfile.id)
+          .eq('job_posting_id', jobPosting.id);
+
+        if (error) throw error;
+        setIsSaved(false);
+      } else {
+        // Save the job
+        const { error } = await supabase.from('saved_jobs').insert({
+          profile_id: userProfile.id,
+          job_posting_id: jobPosting.id,
+        });
+
+        if (error) throw error;
+        setIsSaved(true);
+      }
+    } catch (err) {
+      console.error('Error saving/unsaving job:', err);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  // Handle apply for job
+  const handleApplyForJob = async () => {
+    if (!session?.user?.id || !userProfile || !jobPosting) return;
+
+    setIsActionLoading(true);
+
+    try {
+      // Create job application
+      const { error } = await supabase.from('job_applications').insert({
+        profile_id: userProfile.id,
+        job_posting_id: jobPosting.id,
+      });
+
+      if (error) throw error;
+
+      setIsApplied(true);
+    } catch (err) {
+      console.error('Error applying for job:', err);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
 
   // Format date functions
   const formatDate = (dateString: string) => {
@@ -157,6 +335,9 @@ export default function JobPostingDetailPage() {
 
   // Check if the current user is the owner of this job posting
   const isOwner = session?.user && jobPosting?.user_id === session.user.id;
+
+  // Check if the current user is a content creator (can apply/save)
+  const isContentCreator = userProfile?.user_type === 'content_creator';
 
   const handleDelete = async () => {
     if (!isOwner || !jobPosting) return;
@@ -217,7 +398,28 @@ export default function JobPostingDetailPage() {
           </Button>
         </Link>
 
-        <h1 className="text-3xl font-bold">{jobPosting.title}</h1>
+        <div className="flex justify-between items-start">
+          <h1 className="text-3xl font-bold">{jobPosting.title}</h1>
+
+          {/* Save button for content creators */}
+          {isContentCreator && !isOwner && (
+            <button
+              onClick={handleSaveJob}
+              className="flex items-center justify-center h-10 w-10 rounded-full bg-gray-100 hover:bg-gray-200 focus:outline-none transition-colors"
+              disabled={isActionLoading}
+              aria-label={isSaved ? 'Unsave job' : 'Save job'}
+            >
+              {isActionLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-gray-600" />
+              ) : isSaved ? (
+                <BookmarkFilledIcon className="h-5 w-5 text-indigo-600" />
+              ) : (
+                <BookmarkIcon className="h-5 w-5 text-gray-600" />
+              )}
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center mt-4">
           <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
             {jobPosting.profile_photo ? (
@@ -314,6 +516,82 @@ export default function JobPostingDetailPage() {
                 View {jobPosting.first_name}&apos;s profile
               </Link>
             </div>
+
+            {/* Show applicants list for business owners */}
+            {isOwner && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <h3 className="text-lg font-medium mb-4">Applicants</h3>
+                {applicants.length === 0 ? (
+                  <p className="text-gray-500">
+                    No one has applied for this job posting yet.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-gray-700 mb-4">
+                      {applicants.length}{' '}
+                      {applicants.length === 1 ? 'person has' : 'people have'}{' '}
+                      applied for this job.
+                    </p>
+
+                    <Button
+                      onClick={() => setShowApplicants(!showApplicants)}
+                      variant="outline"
+                      className="mb-4"
+                    >
+                      {showApplicants ? 'Hide Applicants' : 'View Applicants'}
+                    </Button>
+
+                    {showApplicants && (
+                      <div className="space-y-4 mt-4">
+                        {applicants.map((applicant) => (
+                          <div
+                            key={applicant.id}
+                            className="flex items-center p-4 bg-gray-50 rounded-lg border border-gray-200"
+                          >
+                            <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                              {applicant.profile_photo ? (
+                                <Image
+                                  src={applicant.profile_photo}
+                                  alt={applicant.username}
+                                  width={48}
+                                  height={48}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center bg-indigo-100 text-indigo-500">
+                                  <span className="font-bold">
+                                    {applicant.first_name.charAt(0)}
+                                    {applicant.last_name.charAt(0)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="ml-4 flex-grow">
+                              <h4 className="font-medium">
+                                {applicant.first_name} {applicant.last_name}
+                              </h4>
+                              <p className="text-sm text-gray-500">
+                                @{applicant.username} • {applicant.city},{' '}
+                                {applicant.country}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Applied on {formatDate(applicant.created_at)}
+                              </p>
+                            </div>
+                            <Link
+                              href={`/creators/${applicant.username}`}
+                              className="text-indigo-600 hover:underline text-sm"
+                            >
+                              View Profile
+                            </Link>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
         <CardFooter className="flex justify-between">
@@ -327,13 +605,54 @@ export default function JobPostingDetailPage() {
                 Delete Job Posting
               </Button>
             </div>
+          ) : isContentCreator ? (
+            <>
+              {isApplied ? (
+                <div className="flex items-center text-green-700 font-medium">
+                  <svg
+                    className="w-5 h-5 mr-2"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  You&apos;ve applied for this job
+                </div>
+              ) : (
+                <Button
+                  onClick={handleApplyForJob}
+                  disabled={isActionLoading || isDeadlinePassed()}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {isActionLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Applying...
+                    </>
+                  ) : isDeadlinePassed() ? (
+                    'Deadline Passed'
+                  ) : (
+                    'Apply for this Job'
+                  )}
+                </Button>
+              )}
+            </>
           ) : (
-            <Button
-              className="bg-indigo-600 hover:bg-indigo-700"
-              disabled={isDeadlinePassed()}
-            >
-              Apply Now
-            </Button>
+            <div className="text-gray-500">
+              {session ? (
+                'Only content creators can apply for jobs'
+              ) : (
+                <Link href={`/auth?redirectTo=/findwork/${slug}`}>
+                  <Button>Sign in to apply</Button>
+                </Link>
+              )}
+            </div>
           )}
         </CardFooter>
       </Card>

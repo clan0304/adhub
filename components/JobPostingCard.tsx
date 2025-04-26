@@ -2,6 +2,7 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { useState } from 'react';
 
 interface JobPosting {
@@ -12,7 +13,6 @@ interface JobPosting {
   deadline_date: string | null;
   deadline_time: string | null;
   created_at: string;
-  status: 'active' | 'completed' | 'cancelled';
   user_id: string;
   username: string;
   profile_photo: string | null;
@@ -21,6 +21,7 @@ interface JobPosting {
   first_name: string;
   last_name: string;
   user_type: string;
+  slug: string;
 }
 
 interface JobPostingCardProps {
@@ -227,9 +228,11 @@ export default function JobPostingCard({
         )}
 
         <div className="mt-4 flex justify-end">
-          <button className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm hover:bg-indigo-700 transition-colors">
-            Apply Now
-          </button>
+          <Link href={`/findwork/${job.slug}`}>
+            <button className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm hover:bg-indigo-700 transition-colors">
+              View Details
+            </button>
+          </Link>
         </div>
       </div>
     </div>

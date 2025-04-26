@@ -5,6 +5,10 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import Image from 'next/image';
+import { getData } from 'country-list';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Search, X } from 'lucide-react';
 
 interface Creator {
   id: string;
@@ -21,14 +25,42 @@ interface Creator {
   is_public: boolean;
 }
 
+interface CountryOption {
+  code: string;
+  name: string;
+}
+
 export default function CreatorsPage() {
-  const [creators, setCreators] = useState<Creator[]>([]);
+  const [allCreators, setAllCreators] = useState<Creator[]>([]);
+  const [filteredCreators, setFilteredCreators] = useState<Creator[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Load country list
+  useEffect(() => {
+    const countryData = getData();
+
+    // Modify the list to ensure Taiwan is displayed correctly
+    const modifiedCountries = countryData.map((country) => {
+      if (country.code === 'TW') {
+        return { ...country, name: 'Taiwan' };
+      }
+      return country;
+    });
+
+    // Sort countries alphabetically
+    modifiedCountries.sort((a, b) => a.name.localeCompare(b.name));
+
+    setCountries(modifiedCountries);
+  }, []);
 
   useEffect(() => {
     const fetchCreators = async () => {
       try {
+        setLoading(true);
         // Fetch all public content creators
         const { data, error } = await supabase
           .from('content_creators')
@@ -40,7 +72,8 @@ export default function CreatorsPage() {
           throw error;
         }
 
-        setCreators(data || []);
+        setAllCreators(data || []);
+        setFilteredCreators(data || []);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         console.error('Error fetching creators:', err);
@@ -52,6 +85,43 @@ export default function CreatorsPage() {
 
     fetchCreators();
   }, []);
+
+  // Apply filters when search or country changes
+  useEffect(() => {
+    if (!allCreators.length) return;
+
+    let filtered = [...allCreators];
+
+    // Apply country filter
+    if (selectedCountry) {
+      filtered = filtered.filter(
+        (creator) => creator.country === selectedCountry
+      );
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (creator) =>
+          creator.username.toLowerCase().includes(query) ||
+          creator.first_name.toLowerCase().includes(query) ||
+          creator.last_name.toLowerCase().includes(query) ||
+          `${creator.first_name} ${creator.last_name}`
+            .toLowerCase()
+            .includes(query) ||
+          creator.city.toLowerCase().includes(query)
+      );
+    }
+
+    setFilteredCreators(filtered);
+  }, [selectedCountry, searchQuery, allCreators]);
+
+  const clearFilters = () => {
+    setSelectedCountry('');
+    setSearchQuery('');
+    setFilteredCreators(allCreators);
+  };
 
   if (loading) {
     return (
@@ -94,13 +164,107 @@ export default function CreatorsPage() {
           </p>
         </div>
 
-        {creators.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No content creators found.</p>
+        {/* Search and Filter Section */}
+        <div className="mb-8 bg-white p-6 rounded-lg shadow-sm">
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Search bar */}
+            <div className="flex-1">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
+                <Input
+                  type="text"
+                  placeholder="Search by name, username, or location..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Country filter */}
+            <div className="w-full md:w-64">
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-9 px-3"
+              >
+                <option value="">All Countries</option>
+                {countries.map((country) => (
+                  <option key={country.code} value={country.name}>
+                    {country.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Clear filters button - only show if filters are active */}
+            {(selectedCountry || searchQuery) && (
+              <Button
+                variant="outline"
+                onClick={clearFilters}
+                className="flex items-center gap-1"
+              >
+                <X className="h-4 w-4" />
+                Clear Filters
+              </Button>
+            )}
+          </div>
+
+          {/* Filter stats */}
+          <div className="mt-4 text-sm text-gray-500">
+            Showing {filteredCreators.length} of {allCreators.length} creators
+            {selectedCountry && ` in ${selectedCountry}`}
+            {searchQuery && ` matching "${searchQuery}"`}
+          </div>
+        </div>
+
+        {filteredCreators.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-lg shadow">
+            {allCreators.length === 0 ? (
+              <p className="text-gray-500">No content creators found.</p>
+            ) : (
+              <>
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                  />
+                </svg>
+                <h3 className="mt-2 text-lg font-medium text-gray-900">
+                  No matching creators
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try adjusting your search filters to see more results.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={clearFilters}
+                  className="mt-4"
+                >
+                  Clear All Filters
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-            {creators.map((creator) => (
+            {filteredCreators.map((creator) => (
               <CreatorCard key={creator.id} creator={creator} />
             ))}
           </div>

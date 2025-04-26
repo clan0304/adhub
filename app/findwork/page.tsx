@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// app/find-work/page.tsx
+// app/findwork/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,6 +7,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import JobPostingModal from '@/components/JobPostingModal';
 import JobPostingCard from '@/components/JobPostingCard';
+import { getData } from 'country-list';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Search, X } from 'lucide-react';
 
 interface JobPosting {
   id: string;
@@ -16,7 +20,6 @@ interface JobPosting {
   deadline_date: string | null;
   deadline_time: string | null;
   created_at: string;
-  status: 'active' | 'completed' | 'cancelled';
   profile_id: string;
   username: string;
   profile_photo: string | null;
@@ -26,15 +29,45 @@ interface JobPosting {
   first_name: string;
   last_name: string;
   user_type: string;
+  slug: string;
+}
+
+interface CountryOption {
+  code: string;
+  name: string;
 }
 
 export default function FindWorkPage() {
   const { session } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [jobPostings, setJobPostings] = useState<JobPosting[]>([]);
+  const [allJobPostings, setAllJobPostings] = useState<JobPosting[]>([]);
+  const [filteredJobPostings, setFilteredJobPostings] = useState<JobPosting[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Load country list
+  useEffect(() => {
+    const countryData = getData();
+
+    // Modify the list to ensure Taiwan is displayed correctly
+    const modifiedCountries = countryData.map((country) => {
+      if (country.code === 'TW') {
+        return { ...country, name: 'Taiwan' };
+      }
+      return country;
+    });
+
+    // Sort countries alphabetically
+    modifiedCountries.sort((a, b) => a.name.localeCompare(b.name));
+
+    setCountries(modifiedCountries);
+  }, []);
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -83,7 +116,6 @@ export default function FindWorkPage() {
             )
           `
           )
-          .eq('status', 'active')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -102,7 +134,8 @@ export default function FindWorkPage() {
           user_type: posting.profiles.user_type,
         }));
 
-        setJobPostings(transformedData || []);
+        setAllJobPostings(transformedData || []);
+        setFilteredJobPostings(transformedData || []);
       } catch (err: any) {
         console.error('Error fetching job postings:', err);
         setError(err.message || 'Failed to load job postings');
@@ -114,13 +147,51 @@ export default function FindWorkPage() {
     fetchJobPostings();
   }, []);
 
+  // Apply filters when search or country changes
+  useEffect(() => {
+    if (!allJobPostings.length) return;
+
+    let filtered = [...allJobPostings];
+
+    // Apply country filter
+    if (selectedCountry) {
+      filtered = filtered.filter((job) => job.country === selectedCountry);
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (job) =>
+          job.title.toLowerCase().includes(query) ||
+          job.description.toLowerCase().includes(query) ||
+          job.city.toLowerCase().includes(query) ||
+          `${job.first_name} ${job.last_name}`.toLowerCase().includes(query)
+      );
+    }
+
+    setFilteredJobPostings(filtered);
+  }, [selectedCountry, searchQuery, allJobPostings]);
+
+  // Helper function to generate a slug from title
+  const generateSlug = (title: string): string => {
+    // Convert to lowercase, replace spaces with hyphens, remove special characters
+    const baseSlug = title
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w-]+/g, '');
+
+    // Add random characters to ensure uniqueness
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `${baseSlug}-${randomStr}`;
+  };
+
   const handleCreateJobPosting = async (
     jobData: Omit<
       JobPosting,
       | 'id'
       | 'created_at'
       | 'profile_id'
-      | 'status'
       | 'username'
       | 'profile_photo'
       | 'city'
@@ -129,11 +200,15 @@ export default function FindWorkPage() {
       | 'first_name'
       | 'last_name'
       | 'user_type'
+      | 'slug'
     >
   ) => {
     if (!session?.user || !userProfile) return;
 
     try {
+      // Generate slug from title
+      const slug = generateSlug(jobData.title);
+
       // Use the profile's id column as the foreign key
       const { data, error } = await supabase
         .from('job_postings')
@@ -144,7 +219,7 @@ export default function FindWorkPage() {
           has_deadline: jobData.has_deadline,
           deadline_date: jobData.deadline_date,
           deadline_time: jobData.deadline_time,
-          status: 'active',
+          slug: slug,
         })
         .select();
 
@@ -165,7 +240,26 @@ export default function FindWorkPage() {
         };
 
         // Add the new job posting to the state
-        setJobPostings([newJobPosting as JobPosting, ...jobPostings]);
+        const updatedJobPostings = [
+          newJobPosting as JobPosting,
+          ...allJobPostings,
+        ];
+        setAllJobPostings(updatedJobPostings);
+
+        // Re-apply filters
+        let filtered = [...updatedJobPostings];
+        if (selectedCountry) {
+          filtered = filtered.filter((job) => job.country === selectedCountry);
+        }
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          filtered = filtered.filter(
+            (job) =>
+              job.title.toLowerCase().includes(query) ||
+              job.description.toLowerCase().includes(query)
+          );
+        }
+        setFilteredJobPostings(filtered);
       }
 
       setIsModalOpen(false);
@@ -184,12 +278,22 @@ export default function FindWorkPage() {
 
       if (error) throw error;
 
-      // Remove the deleted job posting from state
-      setJobPostings(jobPostings.filter((job) => job.id !== id));
+      // Update both job posting lists
+      const updatedJobPostings = allJobPostings.filter((job) => job.id !== id);
+      setAllJobPostings(updatedJobPostings);
+      setFilteredJobPostings(
+        filteredJobPostings.filter((job) => job.id !== id)
+      );
     } catch (err: any) {
       console.error('Error deleting job posting:', err);
       alert(`Failed to delete job posting: ${err.message}`);
     }
+  };
+
+  const clearFilters = () => {
+    setSelectedCountry('');
+    setSearchQuery('');
+    setFilteredJobPostings(allJobPostings);
   };
 
   const isBusinessOwner = userProfile?.user_type === 'business_owner';
@@ -215,6 +319,63 @@ export default function FindWorkPage() {
           )}
         </div>
 
+        {/* Search and Filter Section */}
+        <div className="mb-8 bg-white p-6 rounded-lg shadow-sm">
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Search bar */}
+            <div className="flex-1">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
+                <Input
+                  type="text"
+                  placeholder="Search job title, description, or location..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Country filter */}
+            <div className="w-full md:w-64">
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-9 px-3"
+              >
+                <option value="">All Countries</option>
+                {countries.map((country) => (
+                  <option key={country.code} value={country.name}>
+                    {country.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Clear filters button - only show if filters are active */}
+            {(selectedCountry || searchQuery) && (
+              <Button
+                variant="outline"
+                onClick={clearFilters}
+                className="flex items-center gap-1"
+              >
+                <X className="h-4 w-4" />
+                Clear Filters
+              </Button>
+            )}
+          </div>
+
+          {/* Filter stats */}
+          <div className="mt-4 text-sm text-gray-500">
+            Showing {filteredJobPostings.length} of {allJobPostings.length} job
+            postings
+            {selectedCountry && ` in ${selectedCountry}`}
+            {searchQuery && ` matching "${searchQuery}"`}
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -229,7 +390,7 @@ export default function FindWorkPage() {
               Try again
             </button>
           </div>
-        ) : jobPostings.length === 0 ? (
+        ) : filteredJobPostings.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-lg shadow">
             <svg
               className="mx-auto h-12 w-12 text-gray-400"
@@ -245,15 +406,28 @@ export default function FindWorkPage() {
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <h3 className="mt-2 text-lg font-medium text-gray-900">
-              No job postings yet
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {isBusinessOwner
-                ? 'Get started by creating your first job posting.'
-                : 'Check back later for new opportunities.'}
-            </p>
-            {isBusinessOwner && (
+            {allJobPostings.length === 0 ? (
+              <>
+                <h3 className="mt-2 text-lg font-medium text-gray-900">
+                  No job postings yet
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {isBusinessOwner
+                    ? 'Get started by creating your first job posting.'
+                    : 'Check back later for new opportunities.'}
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="mt-2 text-lg font-medium text-gray-900">
+                  No matching job postings
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try adjusting your search filters to see more results.
+                </p>
+              </>
+            )}
+            {isBusinessOwner && allJobPostings.length === 0 && (
               <div className="mt-6">
                 <button
                   onClick={() => setIsModalOpen(true)}
@@ -266,7 +440,7 @@ export default function FindWorkPage() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {jobPostings.map((job) => (
+            {filteredJobPostings.map((job) => (
               <JobPostingCard
                 key={job.id}
                 job={job}

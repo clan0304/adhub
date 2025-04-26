@@ -1,24 +1,37 @@
-// components/JobPostingModal.tsx
 'use client';
 
-import { useState } from 'react';
+import type React from 'react';
 
-interface JobPostingFormData {
+import { useState, useEffect } from 'react';
+import type { JobPosting } from '@/types/findwork';
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+
+// Define the FormData type based on JobPosting, omitting fields that aren't edited through the form
+export type JobPostingFormData = {
   title: string;
   description: string;
   has_deadline: boolean;
   deadline_date: string | null;
   deadline_time: string | null;
-}
+};
 
-interface JobPostingModalProps {
+// Define our component props
+export interface JobPostingModalProps {
   onClose: () => void;
   onCreate: (data: JobPostingFormData) => Promise<void>;
+  initialData?: JobPosting | null;
 }
 
 export default function JobPostingModal({
   onClose,
   onCreate,
+  initialData,
 }: JobPostingModalProps) {
   const [formData, setFormData] = useState<JobPostingFormData>({
     title: '',
@@ -29,6 +42,19 @@ export default function JobPostingModal({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If initialData is provided, populate the form for editing
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        title: initialData.title,
+        description: initialData.description,
+        has_deadline: initialData.has_deadline,
+        deadline_date: initialData.deadline_date,
+        deadline_time: initialData.deadline_time,
+      });
+    }
+  }, [initialData]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -48,13 +74,12 @@ export default function JobPostingModal({
     }
   };
 
-  const handleToggleDeadline = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const isChecked = e.target.checked;
+  const handleToggleDeadline = (checked: boolean) => {
     setFormData({
       ...formData,
-      has_deadline: isChecked,
+      has_deadline: checked,
       // Reset date and time if toggling off
-      ...(isChecked ? {} : { deadline_date: null, deadline_time: null }),
+      ...(checked ? {} : { deadline_date: null, deadline_time: null }),
     });
   };
 
@@ -96,191 +121,137 @@ export default function JobPostingModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">
-              Create Job Posting
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit}>
-            <div className="space-y-6">
-              {/* Title */}
-              <div>
-                <label
-                  htmlFor="title"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Title*
-                </label>
-                <input
-                  type="text"
-                  id="title"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleChange}
-                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm ${
-                    errors.title ? 'border-red-500' : ''
-                  }`}
-                  placeholder="Job posting title"
-                />
-                {errors.title && (
-                  <p className="mt-1 text-sm text-red-600">{errors.title}</p>
-                )}
-              </div>
-
-              {/* Description */}
-              <div>
-                <label
-                  htmlFor="description"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Description*
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  rows={5}
-                  value={formData.description}
-                  onChange={handleChange}
-                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm ${
-                    errors.description ? 'border-red-500' : ''
-                  }`}
-                  placeholder="Describe the job opportunity, requirements, and any other relevant information"
-                />
-                {errors.description && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {errors.description}
-                  </p>
-                )}
-              </div>
-
-              {/* Deadline Toggle */}
-              <div className="flex items-center">
-                <div className="relative inline-block w-10 mr-2 align-middle select-none">
-                  <input
-                    type="checkbox"
-                    id="has_deadline"
-                    name="has_deadline"
-                    checked={formData.has_deadline}
-                    onChange={handleToggleDeadline}
-                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                  />
-                  <label
-                    htmlFor="has_deadline"
-                    className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${
-                      formData.has_deadline ? 'bg-indigo-500' : 'bg-gray-300'
-                    }`}
-                  ></label>
-                </div>
-                <label
-                  htmlFor="has_deadline"
-                  className="text-sm font-medium text-gray-700"
-                >
-                  Set Deadline
-                </label>
-              </div>
-
-              {/* Date and Time (conditionally shown) */}
-              {formData.has_deadline && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor="deadline_date"
-                      className="block text-sm font-medium text-gray-700"
-                    >
-                      Deadline Date*
-                    </label>
-                    <input
-                      type="date"
-                      id="deadline_date"
-                      name="deadline_date"
-                      value={formData.deadline_date || ''}
-                      onChange={handleChange}
-                      className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm ${
-                        errors.deadline_date ? 'border-red-500' : ''
-                      }`}
-                      min={new Date().toISOString().split('T')[0]} // Prevent past dates
-                    />
-                    {errors.deadline_date && (
-                      <p className="mt-1 text-sm text-red-600">
-                        {errors.deadline_date}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="deadline_time"
-                      className="block text-sm font-medium text-gray-700"
-                    >
-                      Deadline Time (Optional)
-                    </label>
-                    <input
-                      type="time"
-                      id="deadline_time"
-                      name="deadline_time"
-                      value={formData.deadline_time || ''}
-                      onChange={handleChange}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                    />
-                  </div>
-                </div>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-2xl font-bold">
+            {initialData ? 'Edit Job Posting' : 'Create Job Posting'}
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-8 w-8 rounded-full"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6 pt-4">
+            {/* Title */}
+            <div className="space-y-2">
+              <Label htmlFor="title" className="text-sm font-medium">
+                Title<span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="title"
+                name="title"
+                value={formData.title}
+                onChange={handleChange}
+                placeholder="Job posting title"
+                className={errors.title ? 'border-red-500' : ''}
+              />
+              {errors.title && (
+                <p className="text-sm font-medium text-red-500">
+                  {errors.title}
+                </p>
               )}
             </div>
 
-            <div className="mt-8 flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
+            {/* Description */}
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-medium">
+                Description<span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="description"
+                name="description"
+                rows={5}
+                value={formData.description}
+                onChange={handleChange}
+                placeholder="Describe the job opportunity, requirements, and any other relevant information"
+                className={errors.description ? 'border-red-500' : ''}
+              />
+              {errors.description && (
+                <p className="text-sm font-medium text-red-500">
+                  {errors.description}
+                </p>
+              )}
+            </div>
+
+            {/* Deadline Toggle */}
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="has_deadline"
+                checked={formData.has_deadline}
+                onCheckedChange={handleToggleDeadline}
+              />
+              <Label htmlFor="has_deadline" className="text-sm font-medium">
+                Set Deadline
+              </Label>
+            </div>
+
+            {/* Date and Time (conditionally shown) */}
+            {formData.has_deadline && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="deadline_date"
+                    className="text-sm font-medium"
+                  >
+                    Deadline Date<span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="date"
+                    id="deadline_date"
+                    name="deadline_date"
+                    value={formData.deadline_date || ''}
+                    onChange={handleChange}
+                    className={errors.deadline_date ? 'border-red-500' : ''}
+                    min={new Date().toISOString().split('T')[0]} // Prevent past dates
+                  />
+                  {errors.deadline_date && (
+                    <p className="text-sm font-medium text-red-500">
+                      {errors.deadline_date}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="deadline_time"
+                    className="text-sm font-medium"
+                  >
+                    Set Date and Time (Optional)
+                  </Label>
+                  <Input
+                    type="time"
+                    id="deadline_time"
+                    name="deadline_time"
+                    value={formData.deadline_time || ''}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 disabled:bg-indigo-300"
+                className="bg-primary hover:bg-primary/90"
               >
-                {isSubmitting ? 'Creating...' : 'Create Posting'}
-              </button>
+                {isSubmitting
+                  ? `${initialData ? 'Updating...' : 'Creating...'}`
+                  : `${initialData ? 'Update Posting' : 'Create Posting'}`}
+              </Button>
             </div>
           </form>
-        </div>
-      </div>
-
-      {/* CSS for toggle switch */}
-      <style jsx>{`
-        .toggle-checkbox:checked {
-          right: 0;
-          border-color: #4f46e5;
-        }
-        .toggle-checkbox:checked + .toggle-label {
-          background-color: #4f46e5;
-        }
-        .toggle-label {
-          transition: background-color 0.2s ease;
-        }
-      `}</style>
+        </CardContent>
+      </Card>
     </div>
   );
 }

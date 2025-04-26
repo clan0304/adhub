@@ -3,36 +3,18 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { BookmarkIcon, BookmarkFilledIcon } from '@radix-ui/react-icons';
 import { Loader2 } from 'lucide-react';
-
-interface JobPosting {
-  id: string;
-  title: string;
-  description: string;
-  has_deadline: boolean;
-  deadline_date: string | null;
-  deadline_time: string | null;
-  created_at: string;
-  user_id: string;
-  username: string;
-  profile_photo: string | null;
-  city: string;
-  country: string;
-  first_name: string;
-  last_name: string;
-  user_type: string;
-  slug: string;
-  is_saved?: boolean;
-}
+import { JobPosting } from '@/types/findwork';
 
 interface JobPostingCardProps {
   job: JobPosting;
   isOwner: boolean;
   onDelete: (id: string) => Promise<void>;
+  onEdit?: (job: JobPosting) => void;
   onSaveToggle?: (isSaved: boolean) => void;
   isSaved?: boolean;
 }
@@ -41,6 +23,7 @@ export default function JobPostingCard({
   job,
   isOwner,
   onDelete,
+  onEdit,
   onSaveToggle,
   isSaved = false,
 }: JobPostingCardProps) {
@@ -52,6 +35,23 @@ export default function JobPostingCard({
   const [isLoading, setIsLoading] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [userProfile, setUserProfile] = useState<any>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Handle clicking outside of the menu to close it
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    }
+
+    // Bind the event listener
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      // Unbind the event listener on clean up
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuRef]);
 
   // Check if user has applied for this job
   useEffect(() => {
@@ -185,6 +185,13 @@ export default function JobPostingCard({
     }
   };
 
+  const handleEditJob = () => {
+    if (onEdit) {
+      onEdit(job);
+      setIsMenuOpen(false);
+    }
+  };
+
   // Determine if user can apply/save (must be a content creator and not the owner)
   const canInteract = userProfile?.user_type === 'content_creator' && !isOwner;
 
@@ -238,7 +245,7 @@ export default function JobPostingCard({
             </button>
           ) : (
             isOwner && (
-              <div className="relative">
+              <div className="relative" ref={menuRef}>
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
                   className="text-gray-400 hover:text-gray-600"
@@ -254,6 +261,12 @@ export default function JobPostingCard({
 
                 {isMenuOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                    <button
+                      onClick={handleEditJob}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      Edit Job Posting
+                    </button>
                     <button
                       onClick={handleDeleteJob}
                       disabled={isDeleting}

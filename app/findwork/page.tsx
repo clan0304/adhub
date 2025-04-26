@@ -5,38 +5,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import JobPostingModal from '@/components/JobPostingModal';
-import JobPostingCard from '@/components/JobPostingCard';
+import JobPostingModal, {
+  JobPostingFormData,
+} from '@/components/JobPostingModal';
+import { JobPostingsList } from '@/components/findwork/JobPostingList';
+import { FilterSection } from '@/components/findwork/FilterSection';
+import { JobPosting, CountryOption } from '@/types/findwork';
 import { getData } from 'country-list';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Search, X, Bookmark, CheckCircle } from 'lucide-react';
-
-interface JobPosting {
-  id: string;
-  title: string;
-  description: string;
-  has_deadline: boolean;
-  deadline_date: string | null;
-  deadline_time: string | null;
-  created_at: string;
-  profile_id: string;
-  username: string;
-  profile_photo: string | null;
-  city: string;
-  country: string;
-  user_id: string;
-  first_name: string;
-  last_name: string;
-  user_type: string;
-  slug: string;
-  is_saved?: boolean; // Flag to indicate if the job is saved by the current user
-}
-
-interface CountryOption {
-  code: string;
-  name: string;
-}
 
 export default function FindWorkPage() {
   const { session } = useAuth();
@@ -53,6 +28,8 @@ export default function FindWorkPage() {
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showOnlySaved, setShowOnlySaved] = useState(false);
+  const [showMyPostingsOnly, setShowMyPostingsOnly] = useState(false);
+  const [currentEditJob, setCurrentEditJob] = useState<JobPosting | null>(null);
 
   // Load country list
   useEffect(() => {
@@ -176,7 +153,7 @@ export default function FindWorkPage() {
     fetchJobPostings();
   }, [session, userProfile]);
 
-  // Apply filters when search, country, or saved filter changes
+  // Apply filters when search, country, saved filter, or my postings filter changes
   useEffect(() => {
     if (!allJobPostings.length) return;
 
@@ -185,6 +162,11 @@ export default function FindWorkPage() {
     // Apply saved jobs filter
     if (showOnlySaved) {
       filtered = filtered.filter((job) => job.is_saved);
+    }
+
+    // Apply my postings filter for business owners
+    if (showMyPostingsOnly && session?.user) {
+      filtered = filtered.filter((job) => job.user_id === session.user?.id);
     }
 
     // Apply country filter
@@ -205,7 +187,14 @@ export default function FindWorkPage() {
     }
 
     setFilteredJobPostings(filtered);
-  }, [selectedCountry, searchQuery, showOnlySaved, allJobPostings]);
+  }, [
+    selectedCountry,
+    searchQuery,
+    showOnlySaved,
+    showMyPostingsOnly,
+    allJobPostings,
+    session,
+  ]);
 
   // Helper function to generate a slug from title
   const generateSlug = (title: string): string => {
@@ -220,91 +209,133 @@ export default function FindWorkPage() {
     return `${baseSlug}-${randomStr}`;
   };
 
-  const handleCreateJobPosting = async (
-    jobData: Omit<
-      JobPosting,
-      | 'id'
-      | 'created_at'
-      | 'profile_id'
-      | 'username'
-      | 'profile_photo'
-      | 'city'
-      | 'country'
-      | 'user_id'
-      | 'first_name'
-      | 'last_name'
-      | 'user_type'
-      | 'slug'
-      | 'is_saved'
-    >
-  ) => {
+  const handleCreateJobPosting = async (jobData: JobPostingFormData) => {
     if (!session?.user || !userProfile) return;
 
     try {
-      // Generate slug from title
-      const slug = generateSlug(jobData.title);
+      if (currentEditJob) {
+        // Update existing job posting
+        const { error } = await supabase
+          .from('job_postings')
+          .update({
+            title: jobData.title,
+            description: jobData.description,
+            has_deadline: jobData.has_deadline,
+            deadline_date: jobData.deadline_date,
+            deadline_time: jobData.deadline_time,
+          })
+          .eq('id', currentEditJob.id);
 
-      // Use the profile's id column as the foreign key
-      const { data, error } = await supabase
-        .from('job_postings')
-        .insert({
-          profile_id: userProfile.id, // This uses the id from profiles table
-          title: jobData.title,
-          description: jobData.description,
-          has_deadline: jobData.has_deadline,
-          deadline_date: jobData.deadline_date,
-          deadline_time: jobData.deadline_time,
-          slug: slug,
-        })
-        .select();
+        if (error) throw error;
 
-      if (error) throw error;
+        // Update job listings in state
+        const updatedJobPostings = allJobPostings.map((job) =>
+          job.id === currentEditJob.id
+            ? {
+                ...job,
+                title: jobData.title,
+                description: jobData.description,
+                has_deadline: jobData.has_deadline,
+                deadline_date: jobData.deadline_date,
+                deadline_time: jobData.deadline_time,
+              }
+            : job
+        );
 
-      if (data && data[0]) {
-        // Create a complete job posting object with profile data
-        const newJobPosting = {
-          ...data[0],
-          username: userProfile.username,
-          profile_photo: userProfile.profile_photo,
-          city: userProfile.city,
-          country: userProfile.country,
-          user_id: userProfile.user_id,
-          first_name: userProfile.first_name,
-          last_name: userProfile.last_name,
-          user_type: userProfile.user_type,
-          is_saved: false,
-        };
-
-        // Add the new job posting to the state
-        const updatedJobPostings = [
-          newJobPosting as JobPosting,
-          ...allJobPostings,
-        ];
         setAllJobPostings(updatedJobPostings);
+        setFilteredJobPostings(
+          filteredJobPostings.map((job) =>
+            job.id === currentEditJob.id
+              ? {
+                  ...job,
+                  title: jobData.title,
+                  description: jobData.description,
+                  has_deadline: jobData.has_deadline,
+                  deadline_date: jobData.deadline_date,
+                  deadline_time: jobData.deadline_time,
+                }
+              : job
+          )
+        );
+      } else {
+        // Create new job posting
+        // Generate slug from title
+        const slug = generateSlug(jobData.title);
 
-        // Re-apply filters
-        let filtered = [...updatedJobPostings];
-        if (showOnlySaved) {
-          filtered = filtered.filter((job) => job.is_saved);
+        // Use the profile's id column as the foreign key
+        const { data, error } = await supabase
+          .from('job_postings')
+          .insert({
+            profile_id: userProfile.id, // This uses the id from profiles table
+            title: jobData.title,
+            description: jobData.description,
+            has_deadline: jobData.has_deadline,
+            deadline_date: jobData.deadline_date,
+            deadline_time: jobData.deadline_time,
+            slug: slug,
+          })
+          .select();
+
+        if (error) throw error;
+
+        if (data && data[0]) {
+          // Create a complete job posting object with profile data
+          const newJobPosting = {
+            ...data[0],
+            username: userProfile.username,
+            profile_photo: userProfile.profile_photo,
+            city: userProfile.city,
+            country: userProfile.country,
+            user_id: userProfile.user_id,
+            first_name: userProfile.first_name,
+            last_name: userProfile.last_name,
+            user_type: userProfile.user_type,
+            is_saved: false,
+          };
+
+          // Add the new job posting to the state
+          const updatedJobPostings = [
+            newJobPosting as JobPosting,
+            ...allJobPostings,
+          ];
+          setAllJobPostings(updatedJobPostings);
+
+          // Re-apply filters
+          let filtered = [...updatedJobPostings];
+          if (showOnlySaved) {
+            filtered = filtered.filter((job) => job.is_saved);
+          }
+          if (showMyPostingsOnly && session?.user) {
+            filtered = filtered.filter(
+              (job) => job.user_id === session.user?.id
+            );
+          }
+          if (selectedCountry) {
+            filtered = filtered.filter(
+              (job) => job.country === selectedCountry
+            );
+          }
+          if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(
+              (job) =>
+                job.title.toLowerCase().includes(query) ||
+                job.description.toLowerCase().includes(query)
+            );
+          }
+          setFilteredJobPostings(filtered);
         }
-        if (selectedCountry) {
-          filtered = filtered.filter((job) => job.country === selectedCountry);
-        }
-        if (searchQuery) {
-          const query = searchQuery.toLowerCase();
-          filtered = filtered.filter(
-            (job) =>
-              job.title.toLowerCase().includes(query) ||
-              job.description.toLowerCase().includes(query)
-          );
-        }
-        setFilteredJobPostings(filtered);
       }
 
       setIsModalOpen(false);
+      setCurrentEditJob(null);
     } catch (err: any) {
-      console.error('Error creating job posting:', err);
-      alert(`Failed to create job posting: ${err.message}`);
+      console.error('Error creating/updating job posting:', err);
+      alert(
+        `Failed to ${currentEditJob ? 'update' : 'create'} job posting: ${
+          err.message
+        }`
+      );
     }
   };
 
@@ -327,6 +358,16 @@ export default function FindWorkPage() {
       console.error('Error deleting job posting:', err);
       alert(`Failed to delete job posting: ${err.message}`);
     }
+  };
+
+  const handleEditJobPosting = (job: JobPosting) => {
+    setCurrentEditJob(job);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setCurrentEditJob(null);
   };
 
   const handleSaveJob = async (jobId: string, isSaved: boolean) => {
@@ -402,15 +443,33 @@ export default function FindWorkPage() {
     setSelectedCountry('');
     setSearchQuery('');
     setShowOnlySaved(false);
+    setShowMyPostingsOnly(false);
     setFilteredJobPostings(allJobPostings);
   };
 
   const toggleSavedFilter = () => {
     setShowOnlySaved(!showOnlySaved);
+    // Turn off "My Postings" filter if turning on "Saved" filter
+    if (!showOnlySaved) {
+      setShowMyPostingsOnly(false);
+    }
+  };
+
+  const toggleMyPostingsFilter = () => {
+    setShowMyPostingsOnly(!showMyPostingsOnly);
+    // Turn off "Saved" filter if turning on "My Postings" filter
+    if (!showMyPostingsOnly) {
+      setShowOnlySaved(false);
+    }
   };
 
   const isBusinessOwner = userProfile?.user_type === 'business_owner';
   const isContentCreator = userProfile?.user_type === 'content_creator';
+
+  // Count how many postings are created by the business owner
+  const myPostingsCount = session?.user
+    ? allJobPostings.filter((job) => job.user_id === session.user?.id).length
+    : 0;
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -425,7 +484,10 @@ export default function FindWorkPage() {
 
           {isBusinessOwner && (
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setCurrentEditJob(null); // Ensure we're creating a new job
+                setIsModalOpen(true);
+              }}
               className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
             >
               Create Job Posting
@@ -433,169 +495,45 @@ export default function FindWorkPage() {
           )}
         </div>
 
-        {/* Search and Filter Section */}
-        <div className="mb-6 bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* Search bar */}
-            <div className="flex-1">
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Search className="h-5 w-5 text-gray-400" />
-                </div>
-                <Input
-                  type="text"
-                  placeholder="Search job title, description, or location..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
+        <FilterSection
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          selectedCountry={selectedCountry}
+          setSelectedCountry={setSelectedCountry}
+          countries={countries}
+          showOnlySaved={showOnlySaved}
+          toggleSavedFilter={toggleSavedFilter}
+          showMyPostingsOnly={showMyPostingsOnly}
+          toggleMyPostingsFilter={toggleMyPostingsFilter}
+          clearFilters={clearFilters}
+          isContentCreator={isContentCreator}
+          isBusinessOwner={isBusinessOwner}
+          myPostingsCount={myPostingsCount}
+          filteredCount={filteredJobPostings.length}
+          totalCount={allJobPostings.length}
+        />
 
-            {/* Country filter */}
-            <div className="w-full md:w-64">
-              <select
-                value={selectedCountry}
-                onChange={(e) => setSelectedCountry(e.target.value)}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm h-9 px-3"
-              >
-                <option value="">All Countries</option>
-                {countries.map((country) => (
-                  <option key={country.code} value={country.name}>
-                    {country.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Second row for filters */}
-          <div className="flex flex-wrap items-center mt-4 gap-2">
-            {/* Saved Jobs Filter */}
-            {isContentCreator && (
-              <Button
-                onClick={toggleSavedFilter}
-                variant={showOnlySaved ? 'default' : 'outline'}
-                className="flex items-center gap-1"
-                size="sm"
-              >
-                {showOnlySaved ? (
-                  <CheckCircle className="h-4 w-4" />
-                ) : (
-                  <Bookmark className="h-4 w-4" />
-                )}
-                {showOnlySaved ? 'Showing Saved Jobs' : 'Show Saved Jobs'}
-              </Button>
-            )}
-
-            {/* Clear filters button - only show if filters are active */}
-            {(selectedCountry || searchQuery || showOnlySaved) && (
-              <Button
-                variant="outline"
-                onClick={clearFilters}
-                className="flex items-center gap-1"
-                size="sm"
-              >
-                <X className="h-4 w-4" />
-                Clear Filters
-              </Button>
-            )}
-
-            {/* Filter stats */}
-            <div className="text-sm text-gray-500 ml-auto">
-              Showing {filteredJobPostings.length} of {allJobPostings.length}{' '}
-              job postings
-              {selectedCountry && ` in ${selectedCountry}`}
-              {searchQuery && ` matching "${searchQuery}"`}
-              {showOnlySaved && ` you've saved`}
-            </div>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        ) : error ? (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
-            <p>{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-2 text-sm underline"
-            >
-              Try again
-            </button>
-          </div>
-        ) : filteredJobPostings.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            {allJobPostings.length === 0 ? (
-              <>
-                <h3 className="mt-2 text-lg font-medium text-gray-900">
-                  No job postings yet
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {isBusinessOwner
-                    ? 'Get started by creating your first job posting.'
-                    : 'Check back later for new opportunities.'}
-                </p>
-              </>
-            ) : (
-              <>
-                <h3 className="mt-2 text-lg font-medium text-gray-900">
-                  No matching job postings
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Try adjusting your search filters to see more results.
-                </p>
-              </>
-            )}
-            {isBusinessOwner && allJobPostings.length === 0 && (
-              <div className="mt-6">
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none"
-                >
-                  Create Job Posting
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {filteredJobPostings.map((job) => (
-              <JobPostingCard
-                key={job.id}
-                job={job}
-                isOwner={job.user_id === session?.user?.id}
-                onDelete={handleDeleteJobPosting}
-                onSaveToggle={(isSaved: boolean) =>
-                  handleSaveJob(job.id, isSaved)
-                }
-                isSaved={job.is_saved || false}
-              />
-            ))}
-          </div>
-        )}
+        <JobPostingsList
+          loading={loading}
+          error={error}
+          filteredJobPostings={filteredJobPostings}
+          allJobPostings={allJobPostings}
+          session={session}
+          isBusinessOwner={isBusinessOwner}
+          showMyPostingsOnly={showMyPostingsOnly}
+          myPostingsCount={myPostingsCount}
+          setIsModalOpen={setIsModalOpen}
+          handleDeleteJobPosting={handleDeleteJobPosting}
+          handleSaveJob={handleSaveJob}
+          handleEditJobPosting={handleEditJobPosting}
+        />
       </div>
 
       {isModalOpen && (
         <JobPostingModal
-          onClose={() => setIsModalOpen(false)}
+          onClose={handleCloseModal}
           onCreate={handleCreateJobPosting}
+          initialData={currentEditJob}
         />
       )}
     </div>

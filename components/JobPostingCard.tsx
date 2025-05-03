@@ -219,7 +219,7 @@ export default function JobPostingCard({
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-900">
-                {job.first_name} {job.last_name}
+                {job.username}
               </p>
               <p className="text-xs text-gray-500">
                 Posted on {formatDate(job.created_at)}
@@ -248,7 +248,7 @@ export default function JobPostingCard({
               <div className="relative" ref={menuRef}>
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 hover:cursor-pointer"
                 >
                   <svg
                     className="h-5 w-5"
@@ -377,12 +377,12 @@ export default function JobPostingCard({
             <button
               className={`${
                 isDeadlinePassed() || !canInteract || isApplied
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-indigo-50 text-indigo-600'
+                  ? 'bg-indigo-600 text-white hover:cursor-pointer'
+                  : 'bg-indigo-50 text-indigo-600 hover:cursor-pointer'
               } px-4 py-2 rounded-md text-sm hover:${
                 isDeadlinePassed() || !canInteract || isApplied
-                  ? 'bg-indigo-700'
-                  : 'bg-indigo-100'
+                  ? 'bg-indigo-700 hover:cursor-pointer'
+                  : 'bg-indigo-100 hover:cursor-pointer'
               } transition-colors`}
             >
               View Details

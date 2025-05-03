@@ -393,7 +393,7 @@ export default function JobPostingDetailPage() {
     <div className="max-w-4xl mx-auto py-12 px-4">
       <div className="mb-8">
         <Link href="/findwork">
-          <Button variant="outline" className="mb-6">
+          <Button variant="outline" className="mb-6 hover:cursor-pointer">
             ← Back to Listings
           </Button>
         </Link>
@@ -440,9 +440,7 @@ export default function JobPostingDetailPage() {
             )}
           </div>
           <div className="ml-4">
-            <p className="font-medium">
-              {jobPosting.first_name} {jobPosting.last_name}
-            </p>
+            <p className="font-medium">{jobPosting.username}</p>
             <p className="text-sm text-gray-500">
               Posted on {formatDate(jobPosting.created_at)}
             </p>

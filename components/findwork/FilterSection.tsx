@@ -99,7 +99,7 @@ export function FilterSection({
           <Button
             onClick={toggleMyPostingsFilter}
             variant={showMyPostingsOnly ? 'default' : 'outline'}
-            className="flex items-center gap-1"
+            className="flex items-center gap-1 hover:cursor-pointer"
             size="sm"
           >
             {showMyPostingsOnly ? (

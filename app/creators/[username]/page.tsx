@@ -142,12 +142,10 @@ export default function CreatorProfilePage() {
                 )}
               </div>
               <div className="text-center sm:text-left">
-                <h1 className="text-3xl font-bold text-gray-900">
-                  {creator.first_name} {creator.last_name}
-                </h1>
-                <p className="text-lg text-gray-500 mb-2">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
                   @{creator.username}
-                </p>
+                </h1>
+
                 <p className="text-gray-600 mb-4">
                   {creator.city}, {creator.country}
                 </p>
@@ -163,8 +161,9 @@ export default function CreatorProfilePage() {
 
           {/* Social links */}
           <div className="p-8 border-b">
-            <h2 className="text-xl font-semibold mb-4">
-              Connect With {creator.first_name}
+            <h2 className="text-lg flex gap-1.5 mb-4">
+              Connect With{' '}
+              <p className="text-xl font-bold">{creator.username}</p>
             </h2>
             <div className="flex flex-wrap gap-4">
               {creator.instagram_url && (
@@ -237,17 +236,14 @@ export default function CreatorProfilePage() {
             {creator.open_to_collaborate ? (
               <div>
                 <p className="text-gray-600 mb-4">
-                  {creator.first_name} is open to collaborations! Send a message
-                  to start a conversation.
+                  {creator.first_name} is open to collaborations with other
+                  creators.
                 </p>
-                <button className="bg-indigo-600 text-white px-6 py-2 rounded-md hover:bg-indigo-700 transition-colors">
-                  Contact {creator.first_name}
-                </button>
               </div>
             ) : (
               <p className="text-gray-600">
-                {creator.first_name} is not currently open to new
-                collaborations.
+                {creator.first_name} is not currently open to new collaborations
+                with other creators.
               </p>
             )}
           </div>

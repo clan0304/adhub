@@ -23,7 +23,7 @@ export default function Home() {
             </Link>
             <Link
               href="/auth?tab=signup"
-              className="text-sm font-semibold leading-6 text-gray-900"
+              className="text-sm font-semibold leading-6 text-gray-900 hover:opacity-70"
             >
               Join Us <span aria-hidden="true">→</span>
             </Link>

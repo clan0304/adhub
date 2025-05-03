@@ -98,34 +98,25 @@ const Navbar = () => {
 
             {/* Dropdown menu */}
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 border border-gray-200">
+              <div className="absolute right-0 mt-2 w-68 bg-white rounded-md shadow-lg z-10 border border-gray-200">
                 <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
                   <p className="font-medium">
-                    {session.user.user_metadata?.name || session.user.email}
+                    {session.user.user_metadata?.username}
                   </p>
                   <p className="text-gray-500 text-xs">{session.user.email}</p>
                 </div>
 
                 <Link href="/profile">
                   <div
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                    className="block px-4 py-2 text-sm text-gray-700 font-semibold hover:bg-gray-100 cursor-pointer"
                     onClick={() => setMenuOpen(false)}
                   >
                     Your Profile
                   </div>
                 </Link>
 
-                <Link href="/settings">
-                  <div
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Settings
-                  </div>
-                </Link>
-
                 <div
-                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                  className="block px-4 py-2 text-sm text-white font-semibold bg-red-600 rounded-b-md hover:opacity-70 cursor-pointer"
                   onClick={handleSignOut}
                 >
                   Sign out
